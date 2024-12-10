@@ -9,6 +9,7 @@ from docx import Document as DocxDocument
 from dotenv import load_dotenv
 
 from gbb_ai.pdf_utils import extract_text_from_pdf_bytes
+from gbb_ai.page_utils import extract_html_from_page
 # load logging
 from utils.ml_logging import get_logger
 
@@ -211,6 +212,27 @@ class SharePointDataExtractor:
             logger.error(f"Error in get_drive_id: {err}")
             raise
 
+    def get_drive_id_by_name(self, site_id: str, drive_name:str, access_token: Optional[str] = None) -> str:
+        """
+        Get the drive ID from a Microsoft Graph site.
+        """
+        url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives?$select=system,id,name,webUrl"
+
+        access_token = access_token or self.access_token
+
+        try:
+            json_response = self._make_ms_graph_request(url, access_token)
+            for drive in json_response.get("value"):
+                if str.endswith(drive['webUrl'],drive_name):
+                    drive_id = drive.get("id")
+                    logger.info(f"Successfully retrieved drive ID: {drive_id}")
+                    return drive_id
+            # drive_id = json_response.get("id")
+            # logger.info(f"Successfully retrieved drive ID: {drive_id}")
+            # return drive_id
+        except Exception as err:
+            logger.error(f"Error in get_drive_id: {err}")
+            raise        
     def get_files_in_site(
         self,
         site_id: str,
@@ -305,6 +327,68 @@ class SharePointDataExtractor:
         except Exception as err:
             logger.error(f"Error in get_file_permissions: {err}")
             raise
+
+    def get_pages_in_site(
+        self,
+        site_id: str,
+        folder_path: Optional[str] = None,
+        access_token: Optional[str] = None,
+        minutes_ago: Optional[int] = None,
+    ) -> List[Dict]:
+        """
+        Get a list of files in a site's drive, optionally filtered by creation or last modification time and file formats.
+
+        :param site_id: The site ID in Microsoft Graph.
+        :param drive_id: The drive ID in Microsoft Graph.
+        :param folder_path: Path to the folder within the drive, can include subfolders.
+                The format should follow '/folder/subfolder1/subfolder2/'.For example,
+                '/test/test1/test2/' to access nested folders.
+        :param access_token: The access token for Microsoft Graph API authentication. If not provided, it will be fetched from self.
+        :param minutes_ago: Optional integer to filter files created or updated within the specified number of minutes from now.
+        :param file_formats: List of desired file formats.
+        :return: A list of file details.
+        :raises Exception: If there's an error in fetching file details.
+        """
+        if access_token is None:
+            access_token = self.access_token
+
+        # Construct the URL based on whether a folder path is provided
+        url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/pages"
+
+        try:
+            logger.info("Making request to Microsoft Graph API")
+            json_response = self._make_ms_graph_request(url, access_token)
+            pages = json_response["value"]
+            logger.info("Received response from Microsoft Graph API")
+
+            return pages
+        except Exception as err:
+            logger.error(f"Error in get_files_in_site: {err}")
+            raise
+    def get_page_contents(
+        self,
+        site_id: str,
+        page_id: str,
+        access_token: Optional[str] = None,
+        minutes_ago: Optional[int] = None,
+        file_formats: Optional[List[str]] = None,
+    ) -> dict:
+        if access_token is None:
+            access_token = self.access_token
+
+    # Construct the URL based on whether a folder path is provided
+        url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/pages/{page_id}/microsoft.graph.sitePage?$expand=canvasLayout"
+
+        try:
+            logger.info("Making request to Microsoft Graph API")
+            json_response = self._make_ms_graph_request(url, access_token)
+            # pages = json_response
+            logger.info("Received response from Microsoft Graph API")
+
+            return json_response
+        except Exception as err:
+            logger.error(f"Error in get_files_in_site: {err}")
+            raise    
 
     @staticmethod
     def get_read_access_entities(permissions):
@@ -457,6 +541,42 @@ class SharePointDataExtractor:
             logger.error(f"Error processing document: {err}")
             return None
 
+    def process_and_retrieve_page_content(
+        self,
+        site_id: str,
+        page_id: str,
+        access_token: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Process the content of a .docx file and extract its text.
+
+        :param site_id: The site ID in Microsoft Graph.
+        :param drive_id: The drive ID in Microsoft Graph.
+        :param folder_path: Path to the folder within the drive, can include subfolders.
+        :param file_name: The name of the .docx file.
+        :param specific_file: Specific .docx file name, if different from file_name.
+        :param access_token: The access token for Microsoft Graph API authentication.
+        :return: Text content of the .docx file or None if there's an error.
+        """
+        page_contents = self.get_page_contents(
+            site_id, page_id, access_token
+        )
+        if page_contents is None:
+            return None
+        try:
+            document = extract_html_from_page(page_contents)
+            if document['images'] and len(document['images']) > 0:
+                for image in document['images']:
+                    if(image.get('site_name') != None):
+                        site_id = self.get_site_id(os.getenv("SITE_DOMAIN"), image['site_name'])
+                        drive_id = self.get_drive_id_by_name(site_id, image['drive_name'])
+                        image_bytes = self.get_file_content_bytes(site_id, drive_id, '',image['asset_path'])
+                        image['image_bytes'] = image_bytes
+            return document
+        except Exception as err:
+            logger.error(f"Error processing document: {err}")
+            return None
+
     @staticmethod
     def _extract_file_metadata(
         file_data: Dict[str, Any]
@@ -502,6 +622,44 @@ class SharePointDataExtractor:
             .get("displayName"),
         }
 
+    def retrieve_sharepoint_pages_content(
+    self,
+    site_domain: str,
+    site_name: str,
+    folder_path: Optional[str] = None,
+    file_names: Optional[Union[str, List[str]]] = None,
+    minutes_ago: Optional[int] = None,
+    file_formats: Optional[List[str]] = None,
+) -> Dict[str, Dict[str, Optional[str]]]:
+        """
+        Retrieve contents of files from a specified SharePoint location, optionally filtering by last modification time and file formats.
+
+        :param site_domain: The domain of the site in Microsoft Graph.
+        :param site_name: The name of the site in Microsoft Graph.
+        :param folder_path: Path to the folder within the drive, can include subfolders like 'test1/test2'.
+        :param file_names: Optional; the name or names of specific files to retrieve. If provided, only these files' content will be fetched.
+        :param minutes_ago: Optional; filter for files modified within the specified number of minutes.
+        :param file_formats: Optional; list of desired file formats to include.
+        :return: Dictionary with file names as keys and a dictionary containing their content, location, and users_by_role as values.
+        """
+        if self._are_required_variables_missing():
+            return None
+
+        site_id, drive_id = self._get_site_and_drive_ids(site_domain, site_name)
+        if not site_id or not drive_id:
+            return None
+
+        files = self._get_pages(
+            site_id, drive_id, folder_path, minutes_ago, file_formats
+        )
+        if not files:
+            logger.error("No files found in the site's drive")
+            return None
+
+        return self._process_pages(
+            site_id, drive_id, folder_path, file_names, files, file_formats
+    )
+    
     def retrieve_sharepoint_files_content(
         self,
         site_domain: str,
@@ -587,6 +745,34 @@ class SharePointDataExtractor:
 
         return site_id, drive_id
 
+    def _get_pages(
+        self,
+        site_id: str,
+        drive_id: str,
+        folder_path: Optional[str],
+        minutes_ago: Optional[int],
+        file_formats: Optional[List[str]],
+    ) -> List[Dict]:
+        """
+        Retrieves the files in a site drive.
+
+        :param site_id: The site ID in Microsoft Graph.
+        :param drive_id: The drive ID in Microsoft Graph.
+        :param folder_path: Optional path to the folder within the drive, can include subfolders.
+        :param minutes_ago: Optional integer to filter files created or updated within the specified number of minutes from now.
+        :param file_formats: List of desired file formats.
+        :param specific_file: Optional specific file to retrieve.
+        :return: A list of file details.
+        """
+        files = self.get_pages_in_site(
+            site_id=site_id,
+            # drive_id=drive_id,
+            # folder_path=folder_path,
+            minutes_ago=minutes_ago,
+            # file_formats=file_formats,
+        )
+        return files
+    
     def _get_files(
         self,
         site_id: str,
@@ -665,6 +851,66 @@ class SharePointDataExtractor:
 
         return file_contents
 
+    
+    def _process_pages(
+        self,
+        site_id: str,
+        drive_id: str,
+        folder_path: Optional[str],
+        file_names: Optional[Union[str, List[str]]],
+        files: List[Dict],
+        file_formats: Optional[List[str]],
+    ) -> List[Dict[str, Optional[str]]]:
+        """Processes the files in a site drive.
+
+        :param site_id: The site ID in Microsoft Graph.
+        :param drive_id: The drive ID in Microsoft Graph.
+        :param folder_path: Optional path to the folder within the drive, can include subfolders.
+        :param file_names: The name(s) of specific files to filter. Can be a string or a list of strings.
+        :param files: List of files to process.
+        :param file_formats: List of desired file formats.
+        :return: A list of dictionaries, each mapping file names to their content and metadata.
+        """
+        page_contents = []
+
+        # Handle both string and list for file_names
+        if isinstance(file_names, str):
+            file_names = [file_names]
+
+        # Filter files based on the given file_names
+        if file_names:
+            files = [file for file in files if file.get("name") in file_names]
+            if len(files) == 0:
+                logger.error("No matching files found")
+                return []
+
+        for file in files:
+            file_name = file.get("name")
+            # page_contents.append(self._retrieve_page_content(site_id=site_id, page_id=file.get("id")))
+            page_content = {
+                "id": file.get("id"),
+                "content": self._retrieve_page_content(site_id=site_id, page_id=file.get("id")),
+                "name": file_name
+
+            }
+            page_contents.append(page_content)
+            # file_name = file.get("name")
+            # if file_name and self._is_file_format_valid(file_name, file_formats):
+            #     metadata = self._extract_file_metadata(file)
+            #     content = self._retrieve_file_content(
+            #         site_id, drive_id, folder_path, file_name
+            #     )
+            #     users_by_role = self.get_read_access_entities(
+            #         self.get_file_permissions(site_id, file["id"])
+            #     )
+            #     file_content = {
+            #         "content": content,
+            #         **self._format_metadata(metadata, file_name, users_by_role),
+            #     }
+            #     file_contents.append(file_content)
+
+        return page_contents
+    
     def _is_file_format_valid(
         self, file_name: str, file_formats: Optional[List[str]]
     ) -> bool:
@@ -679,6 +925,21 @@ class SharePointDataExtractor:
             not file_formats
             or any(file_name.endswith(f".{fmt}") for fmt in file_formats)
         )
+
+
+    def _retrieve_page_content(
+        self, site_id: str, page_id: str
+    ) -> Optional[str]:
+        """
+        Retrieve the content of a specific file from SharePoint.
+
+        :param site_id: SharePoint site ID.
+        :param page_id: Name of the file to retrieve.
+        :return: Content of the file as a string, or None if retrieval fails.
+        """
+        return self.process_and_retrieve_page_content(site_id, page_id=page_id)
+        # Add other file type processing as needed
+        # return None
 
     def _retrieve_file_content(
         self, site_id: str, drive_id: str, folder_path: Optional[str], file_name: str
