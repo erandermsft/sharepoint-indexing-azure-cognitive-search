@@ -1,4 +1,5 @@
 import os
+from gbb_ai.sharepoint_data_extractor import SharePointDataExtractor
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents import SearchClient
@@ -25,32 +26,26 @@ else:
     print(f"Directory {target_directory} does not exist.")
 
 
-from gbb_ai.sharepoint_data_extractor import SharePointDataExtractor
-import os
-import requests
+
 
 # Instantiate the SharePointDataExtractor client
-# The client handles the complexities of interacting with SharePoint's REST API, providing an easy-to-use interface for data extraction.
-client_scrapping = SharePointDataExtractor()
-client_scrapping.load_environment_variables_from_env_file()
+# The client handles the complexities of interacting with GRAPH API, providing an easy-to-use interface for data extraction.
+sp_extractor = SharePointDataExtractor()
+sp_extractor.load_environment_variables_from_env_file()
 
 # Authenticate with Microsoft Graph API
-client_scrapping.msgraph_auth()
+sp_extractor.msgraph_auth(use_interactive_session=True)
 
-# Get the Site ID for the specified SharePoint site
-# site_id = client_scrapping.get_site_id(
-#     site_domain=os.environ["SITE_DOMAIN"], site_name=os.environ["SITE_NAME"]
-# )
-
-files_from_root_folder = client_scrapping.retrieve_sharepoint_files_content(
+files_from_root_folder = sp_extractor.retrieve_sharepoint_files_content(
     site_domain=os.environ["SITE_DOMAIN"],
     site_name=os.environ["SITE_NAME"],
     file_formats=["docx", "pdf"],
 )
 
-docs = client_scrapping.retrieve_sharepoint_pages_content(site_domain=os.environ["SITE_DOMAIN"],site_name=os.environ["SITE_NAME"])
+docs = sp_extractor.retrieve_sharepoint_pages_content(site_domain=os.environ["SITE_DOMAIN"],site_name=os.environ["SITE_NAME"])
 for doc in docs:
     print(doc['name'])
+    print(doc.get('title','No title'))
     # print(doc['url'])
     contents = doc.get('content', {}).get('contents', [])
     for content in contents:

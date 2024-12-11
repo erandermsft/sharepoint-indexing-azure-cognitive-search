@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import msal
 import requests
+from azure.identity import InteractiveBrowserCredential, DefaultAzureCredential
 from docx import Document as DocxDocument
 from dotenv import load_dotenv
 
@@ -93,6 +94,7 @@ class SharePointDataExtractor:
         client_id: Optional[str] = None,
         client_secret: Optional[str] = None,
         authority: Optional[str] = None,
+        use_interactive_session: bool = False,
     ):
         """
         Authenticate with Microsoft Graph using MSAL for Python.
@@ -105,31 +107,34 @@ class SharePointDataExtractor:
         # Check if all necessary credentials are provided
         if not all([client_id, client_secret, authority]):
             raise ValueError("Missing required authentication credentials.")
-
-        app = msal.ConfidentialClientApplication(
-            client_id=client_id, authority=authority, client_credential=client_secret
-        )
-
-        try:
-            # Attempt to acquire token
-            access_token = app.acquire_token_silent(self.scope, account=None)
-            if not access_token:
-                access_token = app.acquire_token_for_client(scopes=self.scope)
-                if "access_token" in access_token:
-                    logger.info("New access token retrieved.")
+        if use_interactive_session:
+            credential = InteractiveBrowserCredential(client_id=client_id)
+            token = credential.get_token('https://graph.microsoft.com/.default')
+            self.access_token = token.token
+        else:
+            app = msal.ConfidentialClientApplication(
+                client_id=client_id, authority=authority, client_credential=client_secret
+            )
+            try:
+                # Attempt to acquire token
+                access_token = app.acquire_token_silent(self.scope, account=None)
+                if not access_token:
+                    access_token = app.acquire_token_for_client(scopes=self.scope)
+                    if "access_token" in access_token:
+                        logger.info("New access token retrieved.")
+                    else:
+                        logger.error("Error acquiring authorization token.")
+                        return None
                 else:
-                    logger.error("Error acquiring authorization token.")
-                    return None
-            else:
-                logger.info("Token retrieved from MSAL Cache.")
+                    logger.info("Token retrieved from MSAL Cache.")
 
-            # Store the access token in the instance
-            self.access_token = access_token["access_token"]
-            return self.access_token
+                # Store the access token in the instance
+                self.access_token = access_token["access_token"]
+                return self.access_token
 
-        except Exception as err:
-            logger.error(f"Error in msgraph_auth: {err}")
-            raise
+            except Exception as err:
+                logger.error(f"Error in msgraph_auth: {err}")
+                raise
 
     @staticmethod
     def _format_url(site_id: str, drive_id: str, folder_path: str = None) -> str:
@@ -890,7 +895,14 @@ class SharePointDataExtractor:
             page_content = {
                 "id": file.get("id"),
                 "content": self._retrieve_page_content(site_id=site_id, page_id=file.get("id")),
-                "name": file_name
+                "name": file_name,
+                "title": file.get("title"),
+                "description": file.get("description"),
+                "created_by": file.get("createdBy"),
+                "created_datetime": file.get("createdDateTime"),
+                "last_modified_datetime": file.get("lastModifiedDateTime"),
+                "last_modified_by": file.get("lastModifiedBy"),
+
 
             }
             page_contents.append(page_content)
