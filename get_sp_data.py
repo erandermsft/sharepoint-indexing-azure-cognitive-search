@@ -36,13 +36,13 @@ sp_extractor.load_environment_variables_from_env_file()
 # Authenticate with Microsoft Graph API
 sp_extractor.msgraph_auth(use_interactive_session=True)
 
-files_from_root_folder = sp_extractor.retrieve_sharepoint_files_content(
-    site_domain=os.environ["SITE_DOMAIN"],
-    site_name=os.environ["SITE_NAME"],
-    file_formats=["docx", "pdf"],
-)
+# files_from_root_folder = sp_extractor.retrieve_sharepoint_files_content(
+#     site_domain=os.environ["SITE_DOMAIN"],
+#     site_name=os.environ["SITE_NAME"],
+#     file_formats=["docx", "pdf"],
+# )
 
-docs = sp_extractor.retrieve_sharepoint_pages_content(site_domain=os.environ["SITE_DOMAIN"],site_name=os.environ["SITE_NAME"])
+docs = sp_extractor.retrieve_sharepoint_pages_content(site_domain=os.environ["SITE_DOMAIN"],site_name=os.environ["SITE_NAME"], minutes_ago=15)
 for doc in docs:
     print(doc['name'])
     print(doc.get('title','No title'))

@@ -356,17 +356,47 @@ class SharePointDataExtractor:
         """
         if access_token is None:
             access_token = self.access_token
+         
+        time_limit = (
+                datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+                if minutes_ago is not None
+                else None
+            )
 
         # Construct the URL based on whether a folder path is provided
         url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/pages"
+        if time_limit != None:
+            url = url + '?$filter=lastModifiedDateTime ge ' +time_limit.strftime("%Y-%m-%dT%H:%M:%SZ")
+
 
         try:
             logger.info("Making request to Microsoft Graph API")
             json_response = self._make_ms_graph_request(url, access_token)
             pages = json_response["value"]
             logger.info("Received response from Microsoft Graph API")
+           
 
-            return pages
+            filtered_pages = [
+                page
+                for page in pages
+                if (
+                    (
+                        time_limit is None
+                        or datetime.fromisoformat(
+                            page["fileSystemInfo"]["createdDateTime"].rstrip("Z")
+                        ).replace(tzinfo=timezone.utc)
+                        >= time_limit
+                        or datetime.fromisoformat(
+                            page["fileSystemInfo"]["lastModifiedDateTime"].rstrip("Z")
+                        ).replace(tzinfo=timezone.utc)
+                        >= time_limit
+                    )
+                   
+                )
+            ]
+
+            return filtered_pages
+            # return pages
         except Exception as err:
             logger.error(f"Error in get_files_in_site: {err}")
             raise
