@@ -39,7 +39,7 @@ openai_client = AzureOpenAI(api_version="2024-02-01",
 
 
 # Instantiate the MarkItDown client
-md = MarkItDown(llm_client=openai_client, llm_model="gpt-4-evals")
+md = MarkItDown(llm_client=openai_client, llm_model=os.environ["OPEN_API_MODEL"])
 
 
 
