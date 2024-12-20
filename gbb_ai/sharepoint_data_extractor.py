@@ -376,27 +376,27 @@ class SharePointDataExtractor:
             logger.info("Received response from Microsoft Graph API")
            
 
-            filtered_pages = [
-                page
-                for page in pages
-                if (
-                    (
-                        time_limit is None
-                        or datetime.fromisoformat(
-                            page["fileSystemInfo"]["createdDateTime"].rstrip("Z")
-                        ).replace(tzinfo=timezone.utc)
-                        >= time_limit
-                        or datetime.fromisoformat(
-                            page["fileSystemInfo"]["lastModifiedDateTime"].rstrip("Z")
-                        ).replace(tzinfo=timezone.utc)
-                        >= time_limit
-                    )
+            # filtered_pages = [
+            #     page
+            #     for page in pages
+            #     if (
+            #         (
+            #             time_limit is None
+            #             or datetime.fromisoformat(
+            #                 page["fileSystemInfo"]["createdDateTime"].rstrip("Z")
+            #             ).replace(tzinfo=timezone.utc)
+            #             >= time_limit
+            #             or datetime.fromisoformat(
+            #                 page["fileSystemInfo"]["lastModifiedDateTime"].rstrip("Z")
+            #             ).replace(tzinfo=timezone.utc)
+            #             >= time_limit
+            #         )
                    
-                )
-            ]
+            #     )
+            # ]
 
-            return filtered_pages
-            # return pages
+            # return filtered_pages
+            return pages
         except Exception as err:
             logger.error(f"Error in get_files_in_site: {err}")
             raise
